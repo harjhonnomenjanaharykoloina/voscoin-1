@@ -1,0 +1,440 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  AGENT
+}
+
+enum ChannelType {
+  WHATSAPP
+  MESSENGER
+  EMAIL
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Workspace {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  slug        String   @unique
+  description String?
+  timezone    String   @default("UTC")
+  currency    String   @default("USD")
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users            User[]
+  teams            Team[]
+  contacts         Contact[]
+  companies        Company[]
+  pipelines        Pipeline[]
+  deals            Deal[]
+  tasks            Task[]
+  activities       Activity[]
+  conversations    Conversation[]
+  channelAccounts  ChannelAccount[]
+  campaigns        Campaign[]
+  auditLogs        AuditLog[]
+}
+
+model User {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId   String    @db.ObjectId
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  email         String    @unique
+  passwordHash  String
+  firstName     String
+  lastName      String
+  role          UserRole  @default(AGENT)
+  isActive      Boolean   @default(true)
+  avatarUrl     String?
+  phone         String?
+  lastLoginAt   DateTime?
+  refreshTokenHash String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  teamId        String?   @db.ObjectId
+  team          Team?     @relation(fields: [teamId], references: [id])
+  
+  assignedContacts      Contact[]
+  assignedDeals         Deal[]
+  assignedTasks         Task[]
+  assignedConversations Conversation[]
+  activitiesCreated     Activity[]
+  auditLogs             AuditLog[]
+
+  @@index([workspaceId, email])
+}
+
+model Team {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  members     User[]
+
+  @@index([workspaceId])
+}
+
+model Contact {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  firstName   String
+  lastName    String
+  email       String?
+  phone       String?
+  whatsappPhone String?
+  title       String?
+  avatarUrl   String?
+  source      String?   @default("DIRECT")
+  status      String    @default("ACTIVE")
+  tags        String[]
+  customFields Json?
+
+  companyId   String?   @db.ObjectId
+  company     Company?  @relation(fields: [companyId], references: [id])
+  
+  assignedToId String?  @db.ObjectId
+  assignedTo   User?    @relation(fields: [assignedToId], references: [id])
+
+  deals         Deal[]
+  tasks         Task[]
+  activities    Activity[]
+  conversations Conversation[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, email])
+  @@index([workspaceId, phone])
+  @@index([workspaceId, whatsappPhone])
+}
+
+model Company {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name        String
+  domain      String?
+  industry    String?
+  size        String?
+  phone       String?
+  website     String?
+  address     String?
+  city        String?
+  country     String?
+  logoUrl     String?
+
+  contacts    Contact[]
+  deals       Deal[]
+  activities  Activity[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, name])
+}
+
+model Pipeline {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String      @db.ObjectId
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name        String
+  isDefault   Boolean     @default(false)
+  stages      DealStage[]
+  deals       Deal[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId])
+}
+
+model DealStage {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  pipelineId  String    @db.ObjectId
+  pipeline    Pipeline  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  
+  name        String
+  order       Int
+  probability Int       @default(100)
+  color       String?   @default("#3b82f6")
+
+  deals       Deal[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Deal {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String      @db.ObjectId
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  title       String
+  amount      Float       @default(0)
+  currency    String      @default("USD")
+  status      DealStatus  @default(OPEN)
+  expectedCloseDate DateTime?
+  notes       String?
+
+  pipelineId  String      @db.ObjectId
+  pipeline    Pipeline    @relation(fields: [pipelineId], references: [id])
+  
+  stageId     String      @db.ObjectId
+  stage       DealStage   @relation(fields: [stageId], references: [id])
+
+  contactId   String?     @db.ObjectId
+  contact     Contact?    @relation(fields: [contactId], references: [id])
+
+  companyId   String?     @db.ObjectId
+  company     Company?    @relation(fields: [companyId], references: [id])
+
+  assignedToId String?    @db.ObjectId
+  assignedTo   User?      @relation(fields: [assignedToId], references: [id])
+
+  tasks       Task[]
+  activities  Activity[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([workspaceId, pipelineId])
+}
+
+model Task {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  title       String
+  description String?
+  dueDate     DateTime?
+  completed   Boolean   @default(false)
+  completedAt DateTime?
+  priority    Priority  @default(MEDIUM)
+
+  contactId   String?   @db.ObjectId
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+
+  dealId      String?   @db.ObjectId
+  deal        Deal?     @relation(fields: [dealId], references: [id])
+
+  assignedToId String?  @db.ObjectId
+  assignedTo   User?    @relation(fields: [assignedToId], references: [id])
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, completed])
+}
+
+model Activity {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  type        String    // NOTE, CALL, EMAIL, MEETING, STAGE_CHANGE, STATUS_UPDATE
+  title       String
+  description String?
+  metadata    Json?
+
+  userId      String?   @db.ObjectId
+  user        User?     @relation(fields: [userId], references: [id])
+
+  contactId   String?   @db.ObjectId
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+
+  companyId   String?   @db.ObjectId
+  company     Company?  @relation(fields: [companyId], references: [id])
+
+  dealId      String?   @db.ObjectId
+  deal        Deal?     @relation(fields: [dealId], references: [id])
+
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+}
+
+model ChannelAccount {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId   String      @db.ObjectId
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  channel       ChannelType
+  name          String
+  identifier    String      // e.g. Phone number for WhatsApp, Page ID for Messenger, email address
+  credentials   Json        // Stored server-side only
+  isActive      Boolean     @default(true)
+  webhookSecret String?
+
+  conversations Conversation[]
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([workspaceId, channel, identifier])
+}
+
+model Conversation {
+  id               String         @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId      String         @db.ObjectId
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  channel          ChannelType
+  channelAccountId String?        @db.ObjectId
+  channelAccount   ChannelAccount? @relation(fields: [channelAccountId], references: [id])
+  
+  contactId        String?        @db.ObjectId
+  contact          Contact?       @relation(fields: [contactId], references: [id])
+
+  assignedToId     String?        @db.ObjectId
+  assignedTo       User?          @relation(fields: [assignedToId], references: [id])
+
+  subject          String?
+  lastMessageText  String?
+  lastMessageAt    DateTime       @default(now())
+  unreadCount      Int            @default(0)
+  isArchived       Boolean        @default(false)
+  tags             String[]
+  aiSummary        String?
+
+  messages         Message[]
+
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([workspaceId, channel])
+  @@index([workspaceId, lastMessageAt])
+}
+
+model Message {
+  id             String           @id @default(auto()) @map("_id") @db.ObjectId
+  conversationId String           @db.ObjectId
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  
+  direction      MessageDirection
+  content        String
+  status         MessageStatus    @default(SENT)
+  externalId     String?
+  mediaUrl       String?
+  mediaType      String?
+  rawPayload     Json?
+  
+  senderName     String?
+  senderIdentity String?
+
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([conversationId, createdAt])
+}
+
+model Campaign {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId     String         @db.ObjectId
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  name            String
+  channel         ChannelType
+  status          CampaignStatus @default(DRAFT)
+  templateBody    String
+  audienceFilter  Json?
+  scheduledAt     DateTime?
+  sentCount       Int            @default(0)
+  deliveredCount  Int            @default(0)
+  readCount       Int            @default(0)
+  failedCount     Int            @default(0)
+
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([workspaceId, status])
+}
+
+model WebhookLog {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  channel     ChannelType
+  headers     Json?
+  payload     Json
+  processed   Boolean  @default(false)
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([channel, createdAt])
+}
+
+model AuditLog {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  workspaceId String    @db.ObjectId
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  
+  userId      String?   @db.ObjectId
+  user        User?     @relation(fields: [userId], references: [id])
+  
+  action      String    // AUTH_LOGIN, CONTACT_CREATE, DEAL_STAGE_CHANGE, etc.
+  resource    String
+  resourceId  String?
+  ipAddress   String?
+  details     Json?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId, createdAt])
+}
